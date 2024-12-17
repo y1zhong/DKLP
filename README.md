@@ -25,7 +25,7 @@ The `code` folder contains implementation for three image regression models and 
   - Additional helper functions such as defining DNN class and Bayesian FDR control.
 
 - **`example.py`**
-  - Toy example to run DKLP on three image regression model on simulated datasets.
+  - Demo to run DKLP on three image regression model on simulated datasets.
 
 ### Data
 The `data` folder contains simulated datasets.
