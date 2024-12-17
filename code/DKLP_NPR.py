@@ -9,7 +9,7 @@ class NPR():
     def __init__(self, S, y, pred_S=None,
                 J=50, H=50, ortho='GS',
                 M=4, act_fn='relu',
-                init_theta_nn = None, 
+                init_B_nn = None, 
                 init_theta = None, 
                 init_sigma2_eps = None,
                 init_sigma2_nn = None, 
@@ -36,9 +36,11 @@ class NPR():
         self.V = S.shape[0] # num of locations
         self.d = S.shape[1] # grid dimension
        
-        self.N = y.shape[1] # num of images/lines
+        self.N = y.shape[1]
         self.J = J 
-
+        self.ortho = ortho 
+        
+        #mcmc settings
         self.mcmc_burnin = burnin
         self.mcmc_thinning = thin
         self.mcmc_sample = mcmc_sample
@@ -49,20 +51,20 @@ class NPR():
         self.b_0 = self.total_iter/((1.0/diminishing_ratio)**(1.0/r) - 1.0)
         self.a_0 = lr*self.b_0**(r)
         self.r = r
-
         self.a_nn = a_nn
         self.b_nn = b_nn
         self.a_eps = a_eps
         self.b_eps = b_eps
+        self.A2 = 100
 
+        
         #initialization
         self.model = DKLP_NN(self.d, H, self.J, M=M, act_fn=act_fn)
-        self.theta_nn_cumsum_ind = np.cumsum([p.numel() for p in self.model.parameters() if p.requires_grad])
-        self.theta_nn_cumsum_ind = np.concatenate(([0], self.theta_nn_cumsum_ind))
-        self.ortho = ortho
+        self.B_nn_cumsum_ind = np.cumsum([p.numel() for p in self.model.parameters() if p.requires_grad])
+        self.B_nn_cumsum_ind = np.concatenate(([0], self.B_nn_cumsum_ind))        
         
-        if init_theta_nn is None:
-            init_theta_nn = torch.randn(self.theta_nn_cumsum_ind[-1])
+        if init_B_nn is None:
+            init_B_nn = torch.randn(self.B_nn_cumsum_ind[-1])
 
         if init_theta is None:
             init_theta = torch.randn(self.J, self.N)
@@ -79,13 +81,12 @@ class NPR():
         if init_a_lamb is None:
             init_a_lamb = torch.ones(self.J)
 
-        self.theta_nn =  init_theta_nn.requires_grad_()
+        self.B_nn =  init_B_nn.requires_grad_()
         self.theta = init_theta
         self.sigma2_eps = init_sigma2_eps
         self.sigma2_nn = init_sigma2_nn
         self.lamb = init_lamb
         self.a_lamb = init_a_lamb
-        self.A2 = 100
         
         self.return_weights()
         self.nn_out = self.model(self.S)
@@ -94,13 +95,14 @@ class NPR():
         self.f = self.Psi_detach @ self.theta
         self.update_y_tilda()
 
-        #mcmc samples
+        
         self.mcmc_f = torch.zeros(self.V, self.N)
+        #prediction on new spatial locations
         self.pred_S = pred_S
         if pred_S is not None:
             self.mcmc_pred_f = torch.zeros(pred_S.shape[0], self.N)
    
-
+        #logliklihood
         self.log_lik_y = torch.zeros(self.total_iter) # save log liklihood
 
     def update_Psi_GS(self):
@@ -118,9 +120,9 @@ class NPR():
         for l in range(self.J) :
             if(self.Psi[0,l] < 0):
                 self.Psi[:,l] = self.Psi[:,l] *(-1)
-
         self.Psi_detach = self.Psi.detach()
         self.lamb = self.lambda_sqrt.detach() ** 2
+        self.update_f()
 
     def fit(self):
         if self.ortho == 'GS':
@@ -134,11 +136,11 @@ class NPR():
             self.epsilon = torch.randn(1) * math.sqrt(self.lrt)
             self.update_sigma2_eps()
             self.update_sigma2_nn()
-            self.update_theta_nn(i)
+            self.update_B_nn()
             self.update_Psi_GS()
-            self.update_theta(i)
-            self.update_lamb(i)
-            self.update_a_lamb(i)
+            self.update_theta()
+            self.update_lamb()
+            self.update_a_lamb()
             
             self.update_loglik_y(i)
             if i >= self.mcmc_burnin:
@@ -154,9 +156,9 @@ class NPR():
             self.epsilon = torch.randn(1) * math.sqrt(self.lrt)
             self.update_sigma2_eps()
             self.update_sigma2_nn()
-            self.update_theta_nn(i)
+            self.update_B_nn()
             self.update_Psi_SVD()
-            self.update_theta(i)
+            self.update_theta()
             self.update_loglik_y(i)
             if i >= self.mcmc_burnin:
                 if (i - self.mcmc_burnin) % self.mcmc_thinning == 0:
@@ -178,16 +180,16 @@ class NPR():
 
     def return_weights(self):
         for i, p in enumerate(self.model.parameters()):
-            value = (self.theta_nn[self.theta_nn_cumsum_ind[i]:self.theta_nn_cumsum_ind[i+1]]).clone().detach().requires_grad_(True).reshape(p.shape)
+            value = (self.B_nn[self.B_nn_cumsum_ind[i]:self.B_nn_cumsum_ind[i+1]]).clone().detach().requires_grad_(True).reshape(p.shape)
             p.data = value
     
-    def update_lamb(self,i):
+    def update_lamb(self):
         a_eps_new = (1 + self.N ) / 2 
         b_eps_new = torch.sum(self.theta ** 2, 1) / 2 + 1 / self.a_lamb
         m = torch.distributions.Gamma(a_eps_new, b_eps_new)
         self.lamb = 1 / m.sample()
 
-    def update_a_lamb(self,i):
+    def update_a_lamb(self):
         b_eps_new = 1 / self.A2 + 1 / self.lamb
         m = torch.distributions.Gamma(1, b_eps_new)
         self.a_lamb = 1 / m.sample()
@@ -195,28 +197,23 @@ class NPR():
     def update_f(self):
         self.f = self.Psi_detach @ self.theta
 
-    def update_theta(self, i):
-        mu_theta = self.y_tilda.t() / self.sigma2_eps 
-        sigma2_theta = 1 / (1 / self.sigma2_eps + 1 / self.lamb.detach())
-        sigma2_theta = sigma2_theta.repeat(self.N, 1)
-
-        dist = torch.distributions.Normal(mu_theta*sigma2_theta, torch.sqrt(sigma2_theta))
-        self.theta = dist.sample()
-        self.theta = self.theta.t()
+    def update_theta(self):
+        sigma2_theta = 1 / (1 / self.sigma2_eps + 1 / self.lamb.detach())[:,None] 
+        mu_theta = ( self.y_tilda / self.sigma2_eps ) * sigma2_theta
+        self.theta = torch.randn_like(self.theta) * sigma2_theta.sqrt() + mu_theta
         self.update_f()
 
-    def update_theta_nn(self, i):
-
-        log_prior_nn = - 0.5 * torch.sum(self.theta_nn ** 2) / self.sigma2_nn  
+    def update_B_nn(self):
+        log_prior_nn = - 0.5 * torch.sum(self.B_nn ** 2) / self.sigma2_nn  
         y_res = self.Psi @ self.theta
         log_ll =  - 0.5 * torch.sum((self.y - y_res) ** 2) / self.sigma2_eps
 
         log_post = -(log_prior_nn +  log_ll)
-        du_t = torch.autograd.grad(log_post/self.N, self.theta_nn)[0]
+        du_t = torch.autograd.grad(log_post/self.N, self.B_nn)[0]
         
         with torch.no_grad():
-            self.theta_nn +=  0.5 * self.lrt * du_t + self.epsilon
-            self.theta_nn.grad = None
+            self.B_nn +=  0.5 * self.lrt * du_t + self.epsilon
+            self.B_nn.grad = None
         
         self.return_weights()
         self.nn_out = self.model(self.S)
@@ -228,8 +225,8 @@ class NPR():
         self.sigma2_eps = 1 / m.sample()
     
     def update_sigma2_nn(self):
-        a_nn_new = self.theta_nn_cumsum_ind[-1] / 2 + self.a_nn
-        b_nn_new = torch.sum(self.theta_nn.detach() ** 2) / 2 + self.b_nn
+        a_nn_new = self.B_nn_cumsum_ind[-1] / 2 + self.a_nn
+        b_nn_new = torch.sum(self.B_nn.detach() ** 2) / 2 + self.b_nn
         m = torch.distributions.Gamma(a_nn_new, b_nn_new)
         self.sigma2_nn = 1 / m.sample()
 
@@ -241,7 +238,7 @@ class NPR():
         self.mcmc_f += self.f
         # self.mcmc_lamb[mcmc_iter,:] = self.lamb
         # self.mcmc_Psi[mcmc_iter,:,:] = self.Psi_detach
-        #self.mcmc_theta_nn[mcmc_iter,:] = self.theta_nn.detach()
+        #self.mcmc_B_nn[mcmc_iter,:] = self.B_nn.detach()
         # self.mcmc_theta[mcmc_iter,:,:] = self.theta
         #self.mcmc_kernel[mcmc_iter,:,:] = self.Psi_detach @ torch.diag(self.lamb)  @ self.Psi_detach.t()
      
