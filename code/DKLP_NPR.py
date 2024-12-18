@@ -6,7 +6,7 @@ from tqdm import tqdm
 from helper import *
 
 class NPR():
-    def __init__(self, S, y, pred_S=None,
+    def __init__(self, S, Y, pred_S=None,
                 J=50, H=50, ortho='GS',
                 M=4, act_fn='relu',
                 init_B_nn = None, 
@@ -30,13 +30,13 @@ class NPR():
             ortho: the orthorgonlization operator, 'GS' or 'SVD'
             lr: learning rate for SGLD algorithm
         '''
-        self.y = y
+        self.y = Y
         self.S = S 
        
         self.V = S.shape[0] # num of locations
         self.d = S.shape[1] # grid dimension
        
-        self.N = y.shape[1]
+        self.N = Y.shape[1]
         self.J = J 
         self.ortho = ortho 
         
@@ -96,7 +96,7 @@ class NPR():
         self.update_y_tilda()
 
         
-        self.mcmc_f = torch.zeros(self.V, self.N)
+        self.mcmc_f = torch.zeros(self.mcmc_sample, self.V, self.N)
         #prediction on new spatial locations
         self.pred_S = pred_S
         if pred_S is not None:
@@ -235,27 +235,14 @@ class NPR():
         self.log_lik_y[i] = -0.5 * self.N * torch.log(2 * torch.pi * self.sigma2_eps) - 0.5  * torch.sum((self.y - self.f) ** 2)/ self.sigma2_eps
     
     def save_mcmc_samples(self, mcmc_iter):
-        self.mcmc_f += self.f
-        # self.mcmc_lamb[mcmc_iter,:] = self.lamb
-        # self.mcmc_Psi[mcmc_iter,:,:] = self.Psi_detach
-        #self.mcmc_B_nn[mcmc_iter,:] = self.B_nn.detach()
-        # self.mcmc_theta[mcmc_iter,:,:] = self.theta
-        #self.mcmc_kernel[mcmc_iter,:,:] = self.Psi_detach @ torch.diag(self.lamb)  @ self.Psi_detach.t()
-     
-        # self.mcmc_sigma2_eps[mcmc_iter] = self.sigma2_eps
-        # self.mcmc_sigma2_nn [mcmc_iter]= self.sigma2_nn
+        self.mcmc_f[mcmc_iter,:,:] = self.f
 
 
-    def post_mean(self):
-        post_f = self.mcmc_f/self.mcmc_sample
-        # post_theta = torch.mean(self.mcmc_theta, 0)
-        # post_kernel= torch.mean(self.mcmc_kernel, 0)
-        # post_Psi = torch.mean(self.mcmc_Psi, 0)
-        # post_lamb = torch.mean(self.mcmc_lamb, 0)
-        # post_sigma2_nn = torch.mean(self.mcmc_sigma2_nn)
-        # post_sigma2_eps = torch.mean(self.mcmc_sigma2_eps)
-
-        return  post_f
+    def post_summary(self):
+        post_f = torch.median(self.mcmc_f, 0)[0]
+        post_params = {'maineff': post_f}
+       
+        return  post_params
         #return  post_f, post_kernel, post_Psi, post_lamb, post_theta, post_sigma2_eps, post_sigma2_nn 
     
     def post_pred(self):

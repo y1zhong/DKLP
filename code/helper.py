@@ -11,7 +11,7 @@ def log1pexp(u):
     val += torch.where((u >= 33.3 ) , u , 0)
     return val
 
-def FDR_IS(prob, level, intercept = 1):
+def FDR_IS(prob, level, intercept = 0):
     V = prob.shape[0]
     J = prob.shape[1]
     pred = torch.ones(V,J)
