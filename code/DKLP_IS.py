@@ -36,7 +36,9 @@ class IS():
             X (torch.Tensor): N x q matrix for q confounding covariates
             J (int): number of basis used to approximate kernel function 
             H (int): number of hidden units in each DNN layer
-            ortho (str): the orthorgonlization operator, 'GS' or 'SVD'
+            M (int): number of hidden layer in DNN
+            act_fn (str): activaton function in DNN, including ('relu','leaky','leaky0100','leaky0010','swish','sigmoid')
+            ortho (str): the orthorgonlization operator, including ('GS', 'SVD')
             lr (float): learning rate for SGLD algorithm
             include_intercept (bool): if the covariate matrix X needs to add one intercept column
             first_burnin (int): number of burnin without selection indicator
@@ -161,8 +163,8 @@ class IS():
 
 
 
-    def fit(self):
-        for i in tqdm(range(self.total_iter)):
+    def fit(self, mute=True):
+        for i in tqdm(range(self.total_iter), disable=mute):
             self.lrt = self.a_0*(self.b_0 + i)**(-self.r) 
             self.epsilon = torch.randn(self.batch_num) * math.sqrt(self.lrt)
             for k in range(self.batch_num):
@@ -265,7 +267,6 @@ class IS():
             logp = torch.column_stack((temp0, temp1))
             logp_max, ind = torch.max(logp, 1)
             prob = torch.exp(logp - logp_max.unsqueeze_(1))
-            #print(prob)
             pp = prob[:,1] / torch.sum(prob, 1)
             self.delta[:,j] = torch.bernoulli(pp)
             select_ind = self.delta[:,j]==1
@@ -282,8 +283,8 @@ class IS():
         
         dist = torch.distributions.Normal(mu_eta, torch.sqrt(sigma_eta2))
         self.theta_eta_batch = dist.sample()
-        #self.logp_theta_eta[i] = torch.sum(dist.log_prob(self.theta_eta_batch)).detach()
         self.theta_eta_batch = torch.t(self.theta_eta_batch)
+        # ensure identifiability
         self.theta_eta_batch += self.theta_eta_batch @ self.X_batch_rescale
         
         self.update_eta()
@@ -402,7 +403,6 @@ class IS():
        
         post_sigma2_nn = torch.median(self.mcmc_sigma2_nn, 0)[0]
         post_sigma2_eps = torch.median(self.mcmc_sigma2_eps, 0)[0]
-        #post_lamb = torch.median(self.mcmc_lamb, 0)
 
         prob_fdr = FDR_IS(post_delta, level = level, intercept = self.include_intercept)
         maineff = (post_beta * prob_fdr).t()
@@ -417,12 +417,6 @@ class IS():
         
         return post_params
     
-
-
-    def post_CI(self):
-        f_lci = torch.quantile(self.mcmc_f, 0.025, 0)
-        f_uci = torch.quantile(self.mcmc_f, 0.975, 0)
-        return f_lci, f_uci
 
     def get_weights(self):
         param = torch.empty(0)

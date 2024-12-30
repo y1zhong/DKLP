@@ -7,8 +7,9 @@ from helper import *
 
 class NPR():
     def __init__(self, S, Y, pred_S=None,
-                J=50, H=50, ortho='GS',
-                M=4, act_fn='relu',
+                J=50, H=50, M=4, act_fn='relu',
+                ortho='GS', lr=0.1,
+                burnin=500, thin=1, mcmc_sample=500,
                 init_B_nn = None, 
                 init_theta = None, 
                 init_sigma2_eps = None,
@@ -16,8 +17,7 @@ class NPR():
                 init_lamb = None,
                 init_a_lamb = None,
                 diminishing_ratio= 0.1, r = 0.55, 
-                a_nn=0.001, b_nn=0.001, a_eps=0.001, b_eps=0.001, 
-                burnin=500, thin=1, mcmc_sample=500, lr=0.1
+                a_nn=0.001, b_nn=0.001, a_eps=0.001, b_eps=0.001
                 ):
         '''
         Initialize a nonparametric regression class trained by DKLP framework
@@ -26,8 +26,13 @@ class NPR():
             S: V x D matrix for d-dimensional image grids on V locations
             Y: V x N matrix for N images data
             J: number of basis used to approximate kernel function 
-            H: number of hidden units in each DNN layer
+            H (int): number of hidden units in each DNN layer
+            M (int): number of hidden layer in DNN
+            act_fn (str): activaton function in DNN, including ('relu','leaky','leaky0100','leaky0010','swish','sigmoid')
             ortho: the orthorgonlization operator, 'GS' or 'SVD'
+            burnin (int): number of burnin 
+            thin (int): number of thinning in mcmc samples
+            mcmc_sample (int): number of mcmc samples for posterior inference
             lr: learning rate for SGLD algorithm
         '''
         self.y = Y
@@ -243,8 +248,7 @@ class NPR():
         post_params = {'maineff': post_f}
        
         return  post_params
-        #return  post_f, post_kernel, post_Psi, post_lamb, post_theta, post_sigma2_eps, post_sigma2_nn 
-    
+
     def post_pred(self):
         post_pred_f = self.mcmc_pred_f/self.mcmc_sample
         return post_pred_f

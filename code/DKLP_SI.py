@@ -48,6 +48,8 @@ class SI():
             U (torch.Tensor): scalar vector for N response variables
             J (int): number of basis used to approximate kernel function 
             H (int): number of hidden units in each DNN layer
+            M (int): number of hidden layer in DNN
+            act_fn (str): activaton function in DNN, including ('relu','leaky','leaky0100','leaky0010','swish','sigmoid')
             ortho (str): the orthorgonlization operator, 'GS' or 'SVD'
             lr (float): learning rate for SGLD algorithm
             ns (float): normalizing scalar
@@ -182,8 +184,8 @@ class SI():
         self.set_loglik()
         
             
-    def fit(self):
-        for i in tqdm(range(self.total_iter)):
+    def fit(self, mute=True):
+        for i in tqdm(range(self.total_iter), disable=mute):
                 self.lrt = self.a_0*(self.b_0 + i)**(-self.r) 
                 self.eta = torch.randn(self.num_split) * math.sqrt(self.lrt)
                 for k in range(self.num_split):
@@ -358,7 +360,6 @@ class SI():
         for j in range(self.q):
             temp += self.X_batch[:,j] * self.alpha[j]
             mu_beta = sigma2_alpha[j] * torch.sum(temp * self.X_batch[:,j]) / self.sigma2_u
-            #print(mu_beta)
             dist = torch.distributions.Normal(mu_beta, torch.sqrt(sigma2_alpha[j]))
             self.alpha[j] = dist.sample()
             temp -= self.X_batch[:,j] * self.alpha[j]
